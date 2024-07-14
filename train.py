@@ -10,16 +10,11 @@ from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel
 
 import utils.eval as eval
-from networks.noBias import PanguModel as NoBiasModel
-from networks.pangu import PanguModel as PanguModel
+from utils.data_loader_multifiles import get_data_loader
+
 from networks.PanguLite import PanguModel as PanguModelLite
 from networks.PanguLite2DAttention import PanguModel as PanguLite2D
-from networks.PanguLite2DAttentionPosEmbed import PanguModel as TwoDimPosEmbLite
-from networks.PositionalEmbedding import PanguModel as PositionalEmbedding
-from networks.relativeBias import PanguModel as RelativeBiasModel
-from networks.Three_layers import PanguModel as ThreeLayerModel
-from networks.TwoDimensional import PanguModel as TwoDimPosEmb
-from utils.data_loader_multifiles import get_data_loader
+
 
 
 def init_distributed(params):
@@ -79,33 +74,19 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     # Define patch size, data loader, model
     dim          = params['C']
     two_dimensional = False
-    if params['model'] == '2D' or params['model'] == '2Dim192' or params['model'] == '2DPosEmb' or params['model'] == '2DPosEmbLite':
+    if params['model'] == '2D':
         two_dimensional = True
+    
     train_data_loader, train_dataset, train_sampler = get_data_loader(params, params['train_data_path'], dist.is_initialized(), mode='train', device=device, patch_size=params['patch_size'], subset_size=params['subset_size'], two_dimensional=two_dimensional)
+   
     valid_data_loader, valid_dataset = get_data_loader(params, params['valid_data_path'], dist.is_initialized(), mode='validation', device=device, patch_size=params['patch_size'], subset_size=params['validation_subset_size'], two_dimensional=two_dimensional)
 
-    if params['model'] == 'pangu':
-        model = PanguModel(device=device, dim=dim, patch_size=params['patch_size'])
-    elif params['model'] == 'panguLite':
+    if params['model'] == 'panguLite':
         model = PanguModelLite(device=device, dim=dim, patch_size=params['patch_size'])
-    elif params['model'] == 'relativeBias':
-        model = RelativeBiasModel(device=device, dim=dim, patch_size=params['patch_size'])
-    elif params['model'] == 'noBiasLite':
-        model = NoBiasModel(device=device, dim=dim, patch_size=params['patch_size'])
     elif params['model'] == '2D':
         model = PanguLite2D(device=device, dim=int(1.5*dim), patch_size=params['patch_size'][1:])
-    elif params['model'] == 'threeLayer':
-        model = ThreeLayerModel(device=device, dim=dim, patch_size=params['patch_size'])
-    elif params['model'] == 'positionEmbedding':
-        model = PositionalEmbedding(device=device, dim=dim, patch_size=params['patch_size'])
-    elif params['model'] == '2DPosEmb':
-        model = TwoDimPosEmb(device=device, dim=int(1.5*dim), patch_size=params['patch_size'][1:])
-    elif params['model'] == '2DPosEmbLite':
-        model = TwoDimPosEmbLite(device=device, dim=int(1.5*dim), patch_size=params['patch_size'][1:])
-    elif params['model'] == '2Dim192':
-        model = PanguLite2D(device=device, dim=int(dim), patch_size=params['patch_size'][1:])
     else: 
-        raise NotImplementedError(params['model'] + ' model does not exist.')
+        raise NotImplementedError(params['model'] + ' currently not supported.')
 
     model = model.to(torch.float32).to(device)
 
@@ -129,17 +110,8 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
         rank = 0
         world_size = 1
 
-    if params['restart']:
-        if rank == 0:
-            print("params['save_dir'][params['model']]", params['save_dir'][params['model']] + str(params['save_counter']))
-        state = torch.load(params['save_dir'][params['model']] + str(params['save_counter']) + '_' + params['model'] + params['hash'] + '.pt', map_location='cpu') #, map_location=f'cuda:{rank}')
-        model.load_state_dict(state['model_state'])
-        optimizer.load_state_dict(state['optimizer_state'])
-        scheduler.load_state_dict(state['scheduler_state'])
-        start_epoch = state['epoch'] + 1
-        model = model.to(device)
-    else:
-        start_epoch = 0
+
+    start_epoch = 0
 
     # Training loop
     train_loss_history = []
@@ -149,10 +121,8 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     loss1 = torch.nn.L1Loss()
     loss2 = torch.nn.L1Loss()
 
-    if params['save_counter'] is not None and params['restart'] is True:
-        save_counter = params['save_counter'] 
-    else:
-        save_counter = 0
+
+    save_counter = 0
 
     # Z, Q, T, U, V
     pressure_weights = torch.tensor([3.00, 0.6, 1.5, 0.77, 0.54]).view(1, 5, 1, 1, 1).to(device)
@@ -183,7 +153,7 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
                 optimizer.zero_grad()
                 # Call the model and get the output
                 output, output_surface = model(input, input_surface)
-                if params['model'] == '2D' or params['model'] == '2Dim192' or params['model'] == '2DPosEmb' or params['model'] == '2DPosEmbLite':
+                if params['model'] == '2D':
                     output = output.reshape(-1, 5, 13, output.shape[-2], output.shape[-1])
                     target = target.reshape(-1, 5, 13, target.shape[-2], target.shape[-1])
 
@@ -193,6 +163,7 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
                 output, output_surface = output * pressure_weights, output_surface * surface_weights
                 target, target_surface = target * pressure_weights, target_surface * surface_weights
                 loss = 1 * loss1(output, target) + 0.25 * loss2(output_surface, target_surface)
+
             torch.cuda.empty_cache()
             scaler.scale(loss).backward()
             # Call the backward algorithm and calculate the gradient of parameters
@@ -229,7 +200,7 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
                     early_stopping = 0
                     best_val_loss = val_loss[0]
                     # save model to path
-                    save_path = params['save_dir'][params['model']] + str(save_counter) + "_" + params['model'] + params['hash'] + '.pt'
+                    save_path = params['save_dir'][params['model']] + str(save_counter) + "_" + params['model'] + '.pt'
                     state = {
                         'model_state': model.state_dict(),
                         'optimizer_state': optimizer.state_dict(),
@@ -279,6 +250,7 @@ if __name__ == '__main__':
     params['valid_data_path'] =  '/lsdf/kit/scc/projects/SmartWeater21/era_subset.zarr'#/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr' # CHANGE TO YOUR DATA DIRECTORY
     params['pressure_static_data_path'] = '/lsdf/kit/scc/projects/SmartWeater21/constant_masks/pressure_zarr.npy' 
     params['surface_static_data_path'] =  '/lsdf/kit/scc/projects/SmartWeater21/constant_masks/surface_zarr.npy'  
+    
     params['dt'] = 24
     params['num_data_workers'] = 2  # pyTorch parameter
     params['data_distributed'] = True
@@ -288,25 +260,13 @@ if __name__ == '__main__':
     params['C'] = 192
     params['subset_size'] = 8
     params['validation_subset_size'] = 6
-    params['restart'] = False
-    params['hash'] = "20240522_295466069"
     params['Lite'] = True
     params['daily'] = False
-    params['save_counter'] = 51 # 56# 61 #  100
 
-    # Specify model
-    params['model'] = 'panguLite'
-    # pangu        = full run
-    # panguLite    = light model
-    # relativeBias = relative bias
-    # noBias       = no bias
-    # 2D           = 2D transformer
-    # threeLayer   = 1 more down/upsampling layer
-    # positionEmbedding     = absolute position embedding
-
-    # Save directory
-    # CHANGE TO YOUR OUTPUT SAVE DIRECTORY
-    base_save_dir = 'trained_models/'
+    
+    
+    params['model'] = 'panguLite' # Specify model: panguLite = light model; 2D = 2D transformer
+    base_save_dir = 'trained_models/' # Save directory
         
     
     # Set seeds for reproducability
@@ -315,72 +275,26 @@ if __name__ == '__main__':
     
     device, slurm_localid, gpus_per_node, rank, world_size = init_distributed(params)
 
-    hash_key = params['hash']
-    group = dist.new_group(list(range(world_size)))
 
-    if rank == 0:
-        if not params['restart']: # If this is a new run
-            dt = datetime.datetime.now()
-            date_string = dt.strftime("%Y%m%d")
-            hash_key = date_string + "_" + str(abs(hash(datetime.datetime.now())))[:-10]
-            
-        elif params['hash'] is None:
-            raise ValueError("If reloading from checkpoint, must specify a hash key to read from")
-        else:
-            hash_key = params['hash']
-
-    if not params['restart']:
-        hash_key_list = [hash_key]
-        dist.broadcast_object_list(hash_key_list, src=0, group=group)
-        hash_key = hash_key_list[0]
-        params['hash'] = hash_key
-    else: 
-        hash_key_list = [hash_key]
-        dist.broadcast_object_list(hash_key_list, src=0, group=group)
-    
 
     params['save_dir'] = {
-        'pangu':        base_save_dir + 'panguMoreData/' + hash_key + '/',
-        'panguLite':    base_save_dir + 'panguLite/' + hash_key + '/',
-        'relativeBias': base_save_dir + 'relativeBiasLite/' + hash_key + '/',
-        'noBiasLite':   base_save_dir + 'noBiasLite/' + hash_key + '/',
-        '2D':           base_save_dir + 'twoDimensionalLite/' + hash_key + '/',
-        'threeLayer':   base_save_dir + 'threeLayerLite/' + hash_key + '/',
-        'positionEmbedding':   base_save_dir + 'posEmbeddingLite/' + hash_key + '/',
-        '2Dim192':           base_save_dir + 'twoDim192Lite/' + hash_key + '/',
-        '2DPosEmb': base_save_dir + 'twoDimPosEmb/' + hash_key + '/',
-        '2DPosEmbLite': base_save_dir + 'twoDimPosEmbLite/' + hash_key + '/',
+        'panguLite':    base_save_dir + 'panguLite/' ,
+        '2D':           base_save_dir + 'twoDimensionalLite/' ,
     }
             
     if rank == 0:
         print("Model will be saved in", params['save_dir'][params['model']])
-
-        # If starting a new run
-        if not params['restart']:
-            try:
-                os.mkdir(params['save_dir'][params['model']])
-            except ValueError:
-                raise ValueError("Could not create directory")
-    
-            # dump parameters into json directory
-            with open(params['save_dir'][params['model']] + "params_" + hash_key + '.json', 'w') as params_file:
-                json.dump(params, params_file)
+        # dump parameters into json directory
+        with open(params['save_dir'][params['model']] + "params" + '.json', 'w') as params_file:
+            json.dump(params, params_file)
         
     # initialize patch size: currently, patch size is only (2, 8, 8) for PanguLite.
     # patch size is (2, 4, 4) for all other sizes.
-    if params['Lite']:
-        params['patch_size'] = (2, 8, 8)
-        if params['model'] == '2D' or params['model'] == '2Dim192':
-            params['batch_size'] = 1
-        else:
-            params['batch_size'] = 1
-        params['lat_crop']   = (3, 4) # Do not change if input image size of (721, 1440)
-        params['lon_crop']   = (0, 0) # Do not change if input image size of (721, 1440)
-    else:
-        params['patch_size'] = (2, 4, 4)
-        params['batch_size'] = 1
-        params['lat_crop']   = (1, 2) # Do not change if input image size of (721, 1440)
-        params['lon_crop']   = (0, 0) # Do not change if input image size of (721, 1440)
+    params['patch_size'] = (2, 8, 8)
+        
+    params['batch_size'] = 1
+    params['lat_crop']   = (3, 4) # Do not change if input image size of (721, 1440)
+    params['lon_crop']   = (0, 0) # Do not change if input image size of (721, 1440)
 
     # CHANGE TO YOUR DATA DIRECTORY
     if params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeater21/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr':
