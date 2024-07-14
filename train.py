@@ -15,7 +15,10 @@ from utils.data_loader_multifiles import get_data_loader
 from networks.PanguLite import PanguModel as PanguModelLite
 from networks.PanguLite2DAttention import PanguModel as PanguLite2D
 
-
+def set_all_seeds(seed):
+    os.environ["PL_GLOBAL_SEED"] = str(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 def init_distributed(params):
     """
@@ -36,13 +39,13 @@ def init_distributed(params):
     world_size = int(os.getenv("SLURM_NTASKS")) # Get overall number of processes.
     slurm_job_gpus = os.getenv("SLURM_JOB_GPUS")
     slurm_localid = int(os.getenv("SLURM_LOCALID"))
-    gpus_per_node = torch.cuda.device_count()
+    #gpus_per_node = torch.cuda.device_count()
 
 
     # Initialize GPUs and dataloaders
     if slurm_job_gpus is not None:
-        gpu = rank % gpus_per_node
-        assert gpu == slurm_localid
+        #gpu = rank % gpus_per_node
+        #assert gpu == slurm_localid
         device = f"cuda:{slurm_localid}"
         torch.cuda.set_device(device)
         # Initialize DistributedDataParallel.
@@ -60,17 +63,22 @@ def init_distributed(params):
     else:
         print("Running in serial")
 
-    return device, slurm_localid, gpus_per_node, rank, world_size
+    return device, slurm_localid, rank, world_size
 
-def training_loop(params, device, slurm_localid, gpus_per_node):
+def training_loop(params):
     """
     train the model.
 
     params: Dict
     device: String
     slurm_localid: int
-    gpus_per_node: int
     """
+    # Set seeds for reproducability
+    set_all_seeds(1)
+    
+    device, slurm_localid, rank, world_size = init_distributed(params)
+
+    
     # Define patch size, data loader, model
     dim          = params['C']
     two_dimensional = False
@@ -91,7 +99,7 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     model = model.to(torch.float32).to(device)
 
     # DistributedDataParallel wrapper if GPUs are available
-    if dist.is_initialized() and gpus_per_node > 0:
+    if dist.is_initialized():
         model = DistributedDataParallel( # Wrap model with DistributedDataParallel.
                 model, 
                 device_ids=[slurm_localid], 
@@ -102,13 +110,6 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=3e-6)
     #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=7)
     scheduler = CosineLRScheduler(optimizer, t_initial=params['num_epochs'], warmup_t=5, warmup_lr_init=1e-5)
-
-    if dist.is_initialized():
-        rank = dist.get_rank()
-        world_size = dist.get_world_size()
-    else:
-        rank = 0
-        world_size = 1
 
 
     start_epoch = 0
@@ -121,7 +122,6 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     loss1 = torch.nn.L1Loss()
     loss2 = torch.nn.L1Loss()
 
-
     save_counter = 0
 
     # Z, Q, T, U, V
@@ -131,6 +131,12 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     scaler = GradScaler()
 
     early_stopping = 0 # tracks how many epochs have passed since the validation loss has improved
+
+    if rank == 0:
+        print("Model will be saved in", params['save_dir'][params['model']])
+        # dump parameters into json directory
+        with open(params['save_dir'][params['model']] + "params" + '.json', 'w') as params_file:
+            json.dump(params, params_file)
 
     for epoch in range(start_epoch, start_epoch + num_epochs):
         if rank == 0 and epoch == start_epoch:
@@ -267,42 +273,21 @@ if __name__ == '__main__':
     
     params['model'] = 'panguLite' # Specify model: panguLite = light model; 2D = 2D transformer
     base_save_dir = 'trained_models/' # Save directory
-        
-    
-    # Set seeds for reproducability
-    torch.manual_seed(1)
-    torch.cuda.manual_seed(1)
-    
-    device, slurm_localid, gpus_per_node, rank, world_size = init_distributed(params)
-
-
-
     params['save_dir'] = {
         'panguLite':    base_save_dir + 'panguLite/' ,
         '2D':           base_save_dir + 'twoDimensionalLite/' ,
     }
             
-    if rank == 0:
-        print("Model will be saved in", params['save_dir'][params['model']])
-        # dump parameters into json directory
-        with open(params['save_dir'][params['model']] + "params" + '.json', 'w') as params_file:
-            json.dump(params, params_file)
         
     # initialize patch size: currently, patch size is only (2, 8, 8) for PanguLite.
     # patch size is (2, 4, 4) for all other sizes.
-    params['patch_size'] = (2, 8, 8)
-        
+    params['patch_size'] = (2, 8, 8)  
     params['batch_size'] = 1
     params['lat_crop']   = (3, 4) # Do not change if input image size of (721, 1440)
     params['lon_crop']   = (0, 0) # Do not change if input image size of (721, 1440)
+    params['delta_T_divisor'] = 6 # Baseline assumption is 6-hourly subsampled data
 
-    # CHANGE TO YOUR DATA DIRECTORY
-    if params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeater21/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr':
-        params['delta_T_divisor'] = 6 # Required for WeatherBench2 download with 6-hourly time resolution
-    elif params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeater21/ec.era5/era5.zarr':
-        params['delta_T_divisor'] = 1 # Required for WeatherBench2 download with hourly time resolution
-    else:
-        params['delta_T_divisor'] = 6 # Baseline assumption is 6-hourly subsampled data
+    training_loop(params)
+    
 
-    training_loop(params, device, slurm_localid, gpus_per_node)
     
