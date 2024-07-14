@@ -77,9 +77,9 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
     if params['model'] == '2D':
         two_dimensional = True
     
-    train_data_loader, train_dataset, train_sampler = get_data_loader(params, params['train_data_path'], dist.is_initialized(), mode='train', device=device, patch_size=params['patch_size'], subset_size=params['subset_size'], two_dimensional=two_dimensional)
+    train_data_loader = get_data_loader(params, params['train_data_path'], dist.is_initialized(), mode='train', patch_size=params['patch_size'], subset_size=params['subset_size'], two_dimensional=two_dimensional)
    
-    valid_data_loader, valid_dataset = get_data_loader(params, params['valid_data_path'], dist.is_initialized(), mode='validation', device=device, patch_size=params['patch_size'], subset_size=params['validation_subset_size'], two_dimensional=two_dimensional)
+    valid_data_loader = get_data_loader(params, params['valid_data_path'], dist.is_initialized(), mode='validation', patch_size=params['patch_size'], subset_size=params['validation_subset_size'], two_dimensional=two_dimensional)
 
     if params['model'] == 'panguLite':
         model = PanguModelLite(device=device, dim=dim, patch_size=params['patch_size'])
@@ -139,7 +139,7 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
         start_epoch_time = time.perf_counter()
         model.train()
         
-        train_sampler.set_epoch(epoch)
+        train_data_loader.sampler.set_epoch(epoch)
         epoch_average_loss = 0
         loss = 0
         for i, data in enumerate(train_data_loader):        # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output

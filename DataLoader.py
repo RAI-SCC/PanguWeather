@@ -5,8 +5,7 @@ import torch
 
 
 def load_constant_mask(
-    patch_size,
-    folder_path="/lsdf/kit/scc/projects/SmartWeater21/constant_masks/",
+    patch_size
 ):
     """
     Load the constant masks applied in the patch embedding layer.
@@ -26,6 +25,8 @@ def load_constant_mask(
         of shape (n_lat, n_lon) after padding
     """
     # Load data from numpy files
+    folder_path="constant_masks/"
+    
     data_files = [f for f in os.listdir(folder_path) if f.endswith(".npy")]
     data = {}
     for file in data_files:
@@ -73,8 +74,7 @@ def load_constant_mask(
 
 
 def load_constant_mask_2d(
-    patch_size,
-    folder_path="/lsdf/kit/scc/projects/SmartWeater21/constant_masks/",
+    patch_size
 ):
     """
     Load the constant masks applied in the patch embedding layer.
@@ -94,6 +94,8 @@ def load_constant_mask_2d(
         of shape (n_lat, n_lon) after padding
     """
     # Load data from numpy files
+    folder_path="constant_masks/"
+
     data_files = [f for f in os.listdir(folder_path) if f.endswith(".npy")]
     data = {}
     for file in data_files:

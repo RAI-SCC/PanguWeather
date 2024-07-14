@@ -62,7 +62,7 @@ from torch.utils.data.distributed import DistributedSampler
 # distributed: = dist.is_initialized() = True/False from the environment
 # train = True/False boolean
 
-def get_data_loader(params, file_path, distributed, mode, device, patch_size, subset_size=None, forecast_length=1, two_dimensional=False):
+def get_data_loader(params, file_path, distributed, mode, patch_size, subset_size=None, forecast_length=1, two_dimensional=False):
     """
     Return data loader for 2 or 3D dataset.
     
@@ -74,8 +74,6 @@ def get_data_loader(params, file_path, distributed, mode, device, patch_size, su
         flag for DDP
     mode: String
         of value 'training', 'testing', 'validation'
-    device: String
-        device that the code is running/offloaded on
     patch_size: Tuple(int, int, Optional[int])
         Number of pixels in ([vert], lat, lon) dimensions per patch
     forecast_length: int
@@ -85,16 +83,16 @@ def get_data_loader(params, file_path, distributed, mode, device, patch_size, su
 
     """
     if not two_dimensional:
-        dataset = GetDataset(params, file_path, mode, device, patch_size, forecast_length=forecast_length)
+        dataset = PanguDataset(params, file_path, mode, patch_size, forecast_length=forecast_length)
     else:
-        dataset = Get2DDataset(params, file_path, mode, device, patch_size, forecast_length=forecast_length)
+        dataset = Pangu2DDataset(params, file_path, mode, patch_size, forecast_length=forecast_length)
 
     
     # If we are setting a subset
     if subset_size is not None:
         subset_indices = torch.randperm(len(dataset))[:subset_size]
         dataset = Subset(dataset, subset_indices)
-    sampler = DistributedSampler(dataset, shuffle=True) if distributed else None
+    sampler = DistributedSampler(dataset, shuffle=True) #if distributed else None
     
     dataloader = DataLoader(dataset,
                             batch_size=int(params['batch_size']),
@@ -104,15 +102,12 @@ def get_data_loader(params, file_path, distributed, mode, device, patch_size, su
                             drop_last=False,
                             pin_memory=torch.cuda.is_available())
 
-    if mode == 'train':
-        return dataloader, dataset, sampler
-    else:
-        return dataloader, dataset
+    return dataloader
 
-class GetDataset(Dataset):
+class PanguDataset(Dataset):
     """Define 3D dataset."""
     
-    def __init__(self, params, file_path, mode, device, patch_size, forecast_length=1):
+    def __init__(self, params, file_path, mode, patch_size, forecast_length=1):
         """
         initialize.
 
@@ -124,8 +119,6 @@ class GetDataset(Dataset):
             flag for DDP
         mode: String
             of value 'training', 'testing', 'validation'
-        device: String
-            device that the code is running/offloaded on
         patch_size: Tuple(int, int, Optional[int])
             Number of pixels in ([vert], lat, lon) dimensions per patch
         forecast_length: int
@@ -165,7 +158,6 @@ class GetDataset(Dataset):
         else:
             raise ValueError("File type must be hdf5, netcdf or zarr.")
         self.patch_size = patch_size
-        self.device = device
         if "normalize" in params.keys():
             self.normalize = params.normalize
         else:
@@ -456,11 +448,11 @@ class GetDataset(Dataset):
 
         return t1, t2
     
-class Get2DDataset(GetDataset):
+class Pangu2DDataset(PanguDataset):
     """Dataloader for 2D model."""
 
-    def __init__(self, params, file_path, mode, device, patch_size, forecast_length=1):
-        super().__init__(params, file_path, mode, device, patch_size, forecast_length=1)
+    def __init__(self, params, file_path, mode, patch_size, forecast_length=1):
+        super().__init__(params, file_path, mode, patch_size, forecast_length=1)
         if params['Lite']:
             self.patch_size = (2, 8, 8)
         else:
