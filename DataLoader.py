@@ -6,7 +6,7 @@ import torch
 
 def load_constant_mask(
     patch_size,
-    folder_path="/home/hk-project-epais/ke4365/pangu-weather/constant_masks/",
+    folder_path="/lsdf/kit/scc/projects/SmartWeater21/constant_masks/",
 ):
     """
     Load the constant masks applied in the patch embedding layer.
@@ -74,7 +74,7 @@ def load_constant_mask(
 
 def load_constant_mask_2d(
     patch_size,
-    folder_path="/home/hk-project-epais/ke4365/pangu-weather/constant_masks/",
+    folder_path="/lsdf/kit/scc/projects/SmartWeater21/constant_masks/",
 ):
     """
     Load the constant masks applied in the patch embedding layer.

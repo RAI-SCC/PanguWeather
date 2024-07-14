@@ -275,10 +275,10 @@ def training_loop(params, device, slurm_localid, gpus_per_node):
 
 if __name__ == '__main__':
     params = {}
-    params['train_data_path'] =  '/home/hk-project-epais/ke4365/downloadDataPlayground/era_subset.zarr'#/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr' # CHANGE TO YOUR DATA DIRECTORY
-    params['valid_data_path'] =  '/home/hk-project-epais/ke4365/downloadDataPlayground/era_subset.zarr'#/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr' # CHANGE TO YOUR DATA DIRECTORY
-    params['pressure_static_data_path'] = 'constant_masks/pressure_zarr.npy' 
-    params['surface_static_data_path'] =  'constant_masks/surface_zarr.npy'  
+    params['train_data_path'] =  '/lsdf/kit/scc/projects/SmartWeater21/era_subset.zarr'#/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr' # CHANGE TO YOUR DATA DIRECTORY
+    params['valid_data_path'] =  '/lsdf/kit/scc/projects/SmartWeater21/era_subset.zarr'#/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr' # CHANGE TO YOUR DATA DIRECTORY
+    params['pressure_static_data_path'] = '/lsdf/kit/scc/projects/SmartWeater21/constant_masks/pressure_zarr.npy' 
+    params['surface_static_data_path'] =  '/lsdf/kit/scc/projects/SmartWeater21/constant_masks/surface_zarr.npy'  
     params['dt'] = 24
     params['num_data_workers'] = 2  # pyTorch parameter
     params['data_distributed'] = True
@@ -306,7 +306,7 @@ if __name__ == '__main__':
 
     # Save directory
     # CHANGE TO YOUR OUTPUT SAVE DIRECTORY
-    base_save_dir = 'trained_models/test/'
+    base_save_dir = 'trained_models/'
         
     
     # Set seeds for reproducability
@@ -383,9 +383,9 @@ if __name__ == '__main__':
         params['lon_crop']   = (0, 0) # Do not change if input image size of (721, 1440)
 
     # CHANGE TO YOUR DATA DIRECTORY
-    if params['train_data_path'] == '/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr':
+    if params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeater21/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr':
         params['delta_T_divisor'] = 6 # Required for WeatherBench2 download with 6-hourly time resolution
-    elif params['train_data_path'] == '/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/era5.zarr':
+    elif params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeater21/ec.era5/era5.zarr':
         params['delta_T_divisor'] = 1 # Required for WeatherBench2 download with hourly time resolution
     else:
         params['delta_T_divisor'] = 6 # Baseline assumption is 6-hourly subsampled data

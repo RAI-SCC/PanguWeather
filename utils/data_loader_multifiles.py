@@ -142,9 +142,9 @@ class GetDataset(Dataset):
         
         # If data is downloaded from weatherbench, the 6-hourly subsampled data is stored in the reverse pressure level order.
         # Need to reverse so that the 0th presssure level is 1000 hPa, 1st is 925 hPa, etc.
-        if params['train_data_path'] == '/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr':
+        if params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeather21/ec.era5/1959-2023_01_10-wb13-6h-1440x721.zarr':
             self.level_ordering = range(13-1, -1, -1)
-        elif params['train_data_path'] == '/lsdf/kit/imk-tro/projects/Gruppe_Quinting/ec.era5/era5.zarr':
+        elif params['train_data_path'] == '/lsdf/kit/scc/projects/SmartWeather21/ec.era5/era5.zarr':
             self.level_ordering = range(0, 13)
         else: # baseline assuption is subsampled WB2 data
             self.level_ordering = range(13-1, -1, -1)
@@ -225,10 +225,10 @@ class GetDataset(Dataset):
             self.zarr_data = xr.open_dataset(self.file_path, engine='zarr')
             times = pd.to_datetime(self.zarr_data['time'].values)
             if mode == 'train' and lite: # training case, lite
-                train_years = times[(times.year < 2018) & (times.year > 2006)]
+                train_years = times[(times.year == 2018) & (times.month < 10)]
                 self.zarr_data = self.zarr_data.sel(time=train_years)
             elif mode == 'validation':           # validation
-                validation_years = times[times.year == 2019]
+                validation_years = times[(times.year == 2018) & (times.month >= 10)]
                 self.zarr_data = self.zarr_data.sel(time=validation_years)
             elif mode == 'testing':           # validation
                 validation_years = times[(times.year == 2020) | (times.year == 2021)] 

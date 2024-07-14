@@ -1,18 +1,17 @@
 #!/bin/bash
 #SBATCH --partition=accelerated
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --time=1:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node=4
 #SBATCH --account='hk-project-p0021348'
 #SBATCH --output='test.out'
 #SBATCH --job-name='test'
+#SBATCH --constraint=LSDF
 
-module purge # Unload all models.
-module load jupyter/tensorflow eccodes-2.30.2_i22_ompi40
+module restore pangu
 
-source ~/py39_pangu/bin/activate
-which python
+source /home/hk-project-scc/ih5525/Pangu/.venv/pangu/bin/activate
 
 # Change 5-digit MASTER_PORT as you wish, SLURM will raise Error if duplicated with others.
 export MASTER_PORT=12340
